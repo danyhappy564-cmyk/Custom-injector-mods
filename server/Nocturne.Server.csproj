@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <Version>1.0.0</Version>
+    <Authors>R_F</Authors>
+    <RootNamespace>Nocturne.Server</RootNamespace>
+    <AssemblyName>Nocturne</AssemblyName>
+
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The effect table is shared with the BepInEx plugin so the item the server registers and
+         the buffs the plugin writes at runtime can never describe different things. -->
+    <Compile Include="..\Shared\NocturneBuffs.cs" Link="NocturneBuffs.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SPT 4.1 ships as SPTushonka.*; the assemblies inside are still SPTarkov.*. -->
+    <PackageReference Include="SPTushonka.Common" Version="4.1.5" />
+    <PackageReference Include="SPTushonka.DI" Version="4.1.5" />
+    <PackageReference Include="SPTushonka.Server.Core" Version="4.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="config\config.jsonc" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    Drop the built mod into the server's user\mods folder.
+    Windows-only, because SptRoot is a Windows path: a Linux/CI build would otherwise create a
+    directory literally named "E:\SPT 4.1" in the repo. Pass -p:OS=Windows_NT to force it.
+    Skip with -p:SkipDeploy=true when the server is running and holding the dll open.
+  -->
+  <Target Name="DeployToSpt" AfterTargets="Build"
+          Condition="'$(OS)' == 'Windows_NT' AND '$(SkipDeploy)' != 'true' AND '$(SptModsDir)' != '' AND '$(SptRoot)' != 'CHANGE_ME'">
+    <PropertyGroup>
+      <ModDeployDir>$(SptModsDir)\Nocturne\</ModDeployDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(ModDeployDir);$(ModDeployDir)config" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModDeployDir)"
+          SkipUnchangedFiles="false" ContinueOnError="WarnAndContinue" />
+    <!-- Never overwrite a config the player has edited. -->
+    <Copy SourceFiles="config\config.jsonc" DestinationFolder="$(ModDeployDir)config"
+          Condition="!Exists('$(ModDeployDir)config\config.jsonc')" ContinueOnError="WarnAndContinue" />
+    <Message Text="Deployed $(TargetFileName) to $(ModDeployDir)" Importance="high" />
+  </Target>
+
+</Project>
