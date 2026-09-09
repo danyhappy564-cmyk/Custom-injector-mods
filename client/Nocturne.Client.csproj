@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- netstandard2.1 is what SPT 4.1 client plugins target (the server side is net10.0). -->
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <Version>1.0.0</Version>
+    <Authors>R_F</Authors>
+    <Product>Nocturne.Client</Product>
+    <Description>F12 front end for SJ-0 Nocturne: live control of its effects and of every vanilla stim.</Description>
+    <RootNamespace>Nocturne.Client</RootNamespace>
+    <AssemblyName>Nocturne.Client</AssemblyName>
+
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\NocturneBuffs.cs" Link="NocturneBuffs.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(SptRoot)\BepInEx\core\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- EFT itself. GlobalConfiguration, EffectsSettings and StimulatorBuffSettings are all public
+         in the deobfuscated 4.1 assembly, so no publicised build or spt-reflection is needed. -->
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Comfort">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\Comfort.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ItemComponent.Types">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\ItemComponent.Types.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ItemTemplate.Types">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\ItemTemplate.Types.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <Reference Include="UnityEngine">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!--
+    Drop the plugin into BepInEx\plugins. Windows-only for the same reason as the server project;
+    -p:OS=Windows_NT forces it, -p:SkipDeploy=true skips it.
+  -->
+  <Target Name="DeployToSpt" AfterTargets="Build"
+          Condition="'$(OS)' == 'Windows_NT' AND '$(SkipDeploy)' != 'true' AND '$(SptPluginsDir)' != '' AND '$(SptRoot)' != 'CHANGE_ME'">
+    <PropertyGroup>
+      <PluginDeployDir>$(SptPluginsDir)\Nocturne\</PluginDeployDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(PluginDeployDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDeployDir)"
+          SkipUnchangedFiles="false" ContinueOnError="WarnAndContinue" />
+    <Message Text="Deployed $(TargetFileName) to $(PluginDeployDir)" Importance="high" />
+  </Target>
+
+</Project>
