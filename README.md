@@ -64,6 +64,27 @@ SPT 4.1.5용 커스텀 주사기. **효과를 게임 안에서 F12로 직접 조
 긍정/부작용 구분은 **게임 자체의 판정**(`BuffType.IsBuff(Value)`)을 그대로 씁니다.
 제가 임의로 분류한 게 아닙니다.
 
+### 조절 대상이 두 군데입니다
+
+주사기의 검사창에 뜨는 항목은 **서로 다른 두 곳**에서 옵니다:
+
+| 검사창 항목 | 출처 |
+| --- | --- |
+| 스킬 "체력", 손 떨림, 체력 재생, 에너지·수분 회복 … | `globals` 의 **스팀 버프 표** |
+| **고통 제거, 타박상 치료, 출혈 차단** | 아이템 템플릿의 **`effects_damage`** |
+| 에너지·수분 (일부) | 아이템 템플릿의 **`effects_health`** |
+
+위 배수들은 **세 가지 모두**에 걸립니다. 예를 들어 프로피탈의 `고통 제거 240초`는
+`effects_damage` 쪽이고, 긍정 효과 지속시간 배수를 따라갑니다.
+
+`effects_damage` 항목은 전부 디버프를 막거나 없애는 것(통증·타박상·출혈)이라 **무조건
+긍정으로 분류**합니다. `effects_health` 는 값의 부호로 판정합니다.
+
+대상은 **`StimulatorTemplate` 인 아이템만**입니다. 구급킷·붕대·부목도 같은 `MedsTemplate`
+계열이지만, 살레와의 진통 지속시간까지 조용히 바뀌는 건 "기존 **주사기** 일괄 조정"이
+약속한 게 아니라서 제외했습니다. 모드로 추가된 주사기는 자동으로 포함됩니다 — 클라이언트가
+아이템 카테고리를 보고 템플릿 클래스를 고르기 때문입니다.
+
 ## 서버 설정 (`config/config.jsonc`)
 
 가격과 판매처만 정합니다. 효과는 전부 F12 쪽입니다. 바꾸면 **서버 재시작**이 필요합니다.
@@ -121,6 +142,14 @@ public StimulatorBuffSettings GetPersonalBuffSettings(string buffName, int index
 다음 주사부터 바로 그 값이 적용되고, **아이템 검사창 툴팁도 같은 표를 읽으므로 표시와 실제
 효과가 항상 일치**합니다.
 
+`effects_damage` / `effects_health` 쪽도 같은 이유로 실시간입니다. 사용 시점에 거치는
+`HealthEffectsComponent` 가 템플릿을 복사하지 않고 **그대로 위임**하거든요:
+
+```csharp
+// EFT.InventoryLogic.HealthEffectsComponent
+public Dictionary<EDamageEffectType, DamageEffectSpecification> DamageEffects => _template.DamageEffects;
+```
+
 **Harmony 패치는 하나도 없습니다.** `GlobalConfiguration`, `EffectsSettings`,
 `StimulatorBuffSettings`가 4.1 역난독화 어셈블리에서 전부 public이라 publicized 빌드도
 `spt-reflection`도 필요 없고, 게임 업데이트 때 다시 바인딩할 대상도 없습니다.
@@ -151,7 +180,7 @@ dotnet build Nocturne.slnx -c Release
 - 클라 플러그인: **실제 4.1.5 `Assembly-CSharp.dll`** 상대로 컴파일 (경고 0). 리플렉션이
   없으니 컴파일 자체가 바인딩 검증이고, 빌드된 DLL을 역컴파일해서 실제로
   `Singleton<GlobalConfiguration>` 경로와 `IsBuff`를 쓰는지 확인했습니다.
-- **58개 체크 하네스 전부 통과**:
+- **66개 체크 하네스 전부 통과**:
   - **두 IOnLoad의 실행 슬롯** — 아이템 등록이 `Preload` 구간(200000 미만)인지, 상인 매물이
     `TraderRegistration` 이후인지. 이건 실제로 서버를 죽였던 버그라 회귀 테스트로 박아뒀습니다
   - 효과 10개가 쓰는 `BuffType` 문자열 12개가 전부 실제 `EStimulatorBuffType` enum에
