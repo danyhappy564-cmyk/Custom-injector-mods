@@ -4,6 +4,8 @@ using BepInEx.Logging;
 using Comfort.Common;
 using EFT;
 using EFT.HealthSystem;
+using EFT.InventoryLogic;
+using JsonType;
 using Settings = EFT.HealthSystem.EffectsSettings.StimulatorSettings.StimulatorBuffSettings;
 
 namespace Nocturne.Client;
@@ -32,13 +34,40 @@ internal sealed class StimTuner
         internal bool IsBuff;
     }
 
+    /// <summary>
+    /// One entry of a stimulant's <c>effects_damage</c> / <c>effects_health</c>, plus the numbers it
+    /// had before this plugin touched it.
+    /// <para>
+    /// These are the rows the inspect window labels 고통 제거 / 타박상 치료 / 출혈 차단 and so on.
+    /// They do NOT come from the stimulator buff table - they live on the item template, reached at
+    /// use time through <c>HealthEffectsComponent</c>, which delegates rather than copying
+    /// (<c>DamageEffects =&gt; _template.DamageEffects</c>). So editing the template is seen live by
+    /// both the effect itself and the tooltip, exactly like the buff table.
+    /// </para>
+    /// </summary>
+    private sealed class EffectRow
+    {
+        internal Action<float> SetDuration = null!;
+        internal float BaseDuration;
+
+        /// <summary>Health effects carry a magnitude; damage effects are duration-only.</summary>
+        internal Action<float>? SetValue;
+        internal float BaseValue;
+
+        /// <summary>Captured up front, for the same reason the buff rows capture it.</summary>
+        internal bool IsBuff;
+    }
+
     private readonly ManualLogSource _log;
     private readonly NocturneSettings _settings;
 
     private readonly List<VanillaRow> _vanilla = new();
     private readonly Dictionary<string, EStimulatorBuffType> _buffTypes = new();
 
+    private readonly List<EffectRow> _effects = new();
+
     private Dictionary<string, Settings[]>? _bound;
+    private ItemTemplates? _boundTemplates;
     private bool _dirty;
     private bool _warnedMissingKey;
 
@@ -58,6 +87,7 @@ internal sealed class StimTuner
             // Back at the menu between profiles: forget the binding so the next config gets a
             // fresh baseline instead of one taken from a table that no longer exists.
             _bound = null;
+            _boundTemplates = null;
             return;
         }
 
@@ -71,6 +101,18 @@ internal sealed class StimTuner
         {
             CaptureVanilla(buffs);
             _bound = buffs;
+            _dirty = true;
+        }
+
+        // Stimulant templates arrive with the item factory, on its own schedule, so they are bound
+        // separately from the buff table.
+        var templates = Singleton<ItemFactory>.Instantiated
+            ? Singleton<ItemFactory>.Instance?.ItemTemplates
+            : null;
+        if (templates != null && templates.Count > 0 && !ReferenceEquals(templates, _boundTemplates))
+        {
+            CaptureEffects(templates);
+            _boundTemplates = templates;
             _dirty = true;
         }
 
@@ -118,6 +160,77 @@ internal sealed class StimTuner
         _log.LogInfo($"Captured {_vanilla.Count} vanilla stimulator buff row(s) across {buffs.Count - 1} stim(s).");
     }
 
+    /// <summary>
+    /// Snapshots the duration (and, for health effects, the magnitude) of every damage/health effect
+    /// on every stimulant template.
+    /// <para>
+    /// Scoped to <see cref="StimulatorTemplate"/> on purpose: MedsTemplate also covers medkits,
+    /// bandages and splints, and quietly changing how long a Salewa suppresses pain is not what
+    /// "기존 주사기 일괄 조정" says on the tin. Modded stims are picked up automatically, because the
+    /// client chooses the template class from the item's category.
+    /// </para>
+    /// </summary>
+    private void CaptureEffects(ItemTemplates templates)
+    {
+        _effects.Clear();
+
+        var stims = 0;
+        foreach (var pair in templates)
+        {
+            if (!(pair.Value is StimulatorTemplate stim))
+            {
+                continue;
+            }
+
+            stims++;
+
+            if (stim.DamageEffects != null)
+            {
+                foreach (var effect in stim.DamageEffects.Values)
+                {
+                    if (effect == null)
+                    {
+                        continue;
+                    }
+
+                    var spec = effect;
+                    _effects.Add(new EffectRow
+                    {
+                        SetDuration = v => spec.Duration = v,
+                        BaseDuration = spec.Duration,
+                        // Every damage effect on a stim removes or holds off a debuff - pain,
+                        // contusion, bleeding - so they are all on the good side of the ledger.
+                        IsBuff = true,
+                    });
+                }
+            }
+
+            if (stim.HealthEffects != null)
+            {
+                foreach (var effect in stim.HealthEffects.Values)
+                {
+                    if (effect == null)
+                    {
+                        continue;
+                    }
+
+                    var spec = effect;
+                    _effects.Add(new EffectRow
+                    {
+                        SetDuration = v => spec.Duration = v,
+                        BaseDuration = spec.Duration,
+                        SetValue = v => spec.Value = v,
+                        BaseValue = spec.Value,
+                        // Energy/hydration on a stim can go either way; the sign decides.
+                        IsBuff = spec.Value >= 0f,
+                    });
+                }
+            }
+        }
+
+        _log.LogInfo($"Captured {_effects.Count} damage/health effect row(s) across {stims} stimulant template(s).");
+    }
+
     private void Apply(Dictionary<string, Settings[]> buffs)
     {
         var on = _settings.Enabled.Value;
@@ -128,7 +241,7 @@ internal sealed class StimTuner
         if (_settings.VerboseLogging.Value)
         {
             _log.LogInfo(on
-                ? $"Applied settings ({_vanilla.Count} vanilla row(s) rescaled)."
+                ? $"Applied settings ({_vanilla.Count} buff row(s) and {_effects.Count} damage/health effect row(s) rescaled)."
                 : "Disabled - every stimulator is back to the values the server sent.");
         }
     }
@@ -210,6 +323,15 @@ internal sealed class StimTuner
         {
             row.Target.Duration = row.BaseDuration * (row.IsBuff ? buffDuration : debuffDuration);
             row.Target.Value = row.BaseValue * strength;
+        }
+
+        // The template-side effects - 고통 제거, 타박상 치료, 출혈 차단 and the energy/hydration
+        // drains - ride the same multipliers. They were untouched until now, which is why those two
+        // rows in particular never moved.
+        foreach (var row in _effects)
+        {
+            row.SetDuration(row.BaseDuration * (row.IsBuff ? buffDuration : debuffDuration));
+            row.SetValue?.Invoke(row.BaseValue * strength);
         }
     }
 

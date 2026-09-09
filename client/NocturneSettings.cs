@@ -113,8 +113,9 @@ internal sealed class NocturneSettings
             "기존 주사기 조정 사용",
             false,
             new ConfigDescription(
-                "바닐라 주사기(SJ1/6/9/12, 프로피탈, 자구스틴, 아드레날린 등) 전부에 아래 배수를 겁니다. "
-                + "녹턴에는 적용되지 않습니다.",
+                "바닐라 주사기(SJ1/6/9/12, 프로피탈, 자구스틴, 아드레날린 등)와 모드로 추가된 주사기 "
+                + "전부에 아래 배수를 겁니다. 버프뿐 아니라 고통 제거·타박상 치료·출혈 차단 같은 "
+                + "항목도 같이 조절됩니다. 녹턴에는 적용되지 않습니다.",
                 null,
                 new ConfigurationManagerAttributes { Order = 40 }));
 
@@ -123,7 +124,8 @@ internal sealed class NocturneSettings
             "긍정 효과 지속시간 배수",
             1f,
             new ConfigDescription(
-                "이로운 효과가 유지되는 시간. 2면 두 배로 오래 갑니다.",
+                "이로운 효과가 유지되는 시간. 2면 두 배로 오래 갑니다. "
+                + "고통 제거·타박상 치료·출혈 차단도 여기에 따라갑니다.",
                 new AcceptableValueRange<float>(0.1f, 5f),
                 new ConfigurationManagerAttributes { Order = 30 }));
 
