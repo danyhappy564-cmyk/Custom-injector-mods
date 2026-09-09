@@ -1,13 +1,9 @@
-using System.Reflection;
 using SPTarkov.Common.Models.Logging;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
-using SPTarkov.Server.Core.Helpers.Server;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
-using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Tables;
-using Path = System.IO.Path;
 using SptBuff = SPTarkov.Server.Core.Models.Spt.Tables.Buff;
 
 namespace Nocturne.Server;
@@ -24,20 +20,28 @@ namespace Nocturne.Server;
 /// exists in the item database, the handbook, the flea price table and (optionally) one trader's
 /// assort, and nowhere else — so it cannot be found in raid.
 /// </summary>
-[Injectable(InjectionType.Singleton, TypePriority = OnLoadOrder.PostLoad + 50)]
+/// <remarks>
+/// Runs at <see cref="OnLoadOrder.Preload"/> because SPT 4.1's <c>DatabaseIntegrityService</c>
+/// snapshots <c>TemplateTable.Items</c> once profiles have loaded and throws if anything appeared
+/// after that. Preload is the last slot that beats the snapshot, and the database is already fully
+/// imported by then. Registering the item any later takes the whole server down on boot.
+/// Handbook entries want to be in before <c>HandbookCallbacks</c> processes them anyway, so this is
+/// the right slot on both counts. The trader offer is a separate step —
+/// see <see cref="NocturneTraderOffer"/>.
+/// </remarks>
+[Injectable(InjectionType.Singleton, TypePriority = OnLoadOrder.Preload + 50)]
 public class NocturneMod(
     ISptLogger<NocturneMod> logger,
-    ModHelper modHelper,
+    NocturneConfigLoader configLoader,
     TemplateTable templates,
     GlobalTable globals,
-    LocaleTable locales,
-    TradersTable traders
+    LocaleTable locales
 ) : IOnLoad
 {
-    private const string LogPrefix = "[Nocturne]";
+    internal const string LogPrefix = "[Nocturne]";
 
-    private const string DisplayName = "SJ-0 Nocturne";
-    private const string ShortName = "SJ-0";
+    internal const string DisplayName = "SJ-0 Nocturne";
+    internal const string ShortName = "SJ-0";
 
     private const string DescriptionEn =
         "An unreleased TerraGroup Labs prototype. Where the SJ series traded stability for a single "
@@ -49,13 +53,9 @@ public class NocturneMod(
 
     public Task OnLoadAsync(CancellationToken cancellationToken = default)
     {
-        var config = LoadConfig();
-        if (config is null)
-        {
-            return Task.CompletedTask;
-        }
-
+        var config = configLoader.Value;
         var itemId = new MongoId(NocturneBuffs.ItemId);
+
         if (templates.Items.ContainsKey(itemId))
         {
             logger.Warning($"{LogPrefix} {itemId} is already registered - another mod uses this id. Doing nothing.");
@@ -74,39 +74,16 @@ public class NocturneMod(
         RegisterHandbookAndPrices(itemId, config);
         RegisterLocales(itemId);
 
-        var soldBy = config.SellAtTrader ? RegisterTraderOffer(itemId, config) : null;
-
         logger.Success(
             $"{LogPrefix} SJ-0 «Nocturne» registered ({NocturneBuffs.All.Count} effects, "
-            + $"handbook {config.HandbookPrice:N0}₽, flea {(config.AllowOnFlea ? $"{FleaPrice(config):N0}₽" : "off")}, "
-            + $"trader {soldBy ?? "off"}). Not in any loot table by design."
+            + $"handbook {config.HandbookPrice:N0}₽, flea {(config.AllowOnFlea ? $"{FleaPrice(config):N0}₽" : "off")}). "
+            + "Not in any loot table by design."
         );
         return Task.CompletedTask;
     }
 
-    private NocturneConfig? LoadConfig()
-    {
-        var configDir = Path.Combine(
-            modHelper.GetAbsolutePathToModFolder(Assembly.GetExecutingAssembly()),
-            "config"
-        );
-
-        try
-        {
-            return modHelper.GetJsonDataFromFile<NocturneConfig>(configDir, "config.jsonc") ?? new NocturneConfig();
-        }
-        catch (Exception ex)
-        {
-            logger.Error($"{LogPrefix} could not read config.jsonc from {configDir}; falling back to defaults.", ex);
-            return new NocturneConfig();
-        }
-    }
-
-    private int FleaPrice(NocturneConfig config) =>
+    internal static int FleaPrice(NocturneConfig config) =>
         config.FleaPrice > 0 ? config.FleaPrice : config.HandbookPrice;
-
-    private int TraderPrice(NocturneConfig config) =>
-        config.TraderPrice > 0 ? config.TraderPrice : config.HandbookPrice;
 
     /// <summary>
     /// Seeds the buff table with the defaults from <see cref="NocturneBuffs"/>. The client plugin
@@ -226,49 +203,5 @@ public class NocturneMod(
                 return locale;
             });
         }
-    }
-
-    /// <summary>Adds a cash offer to one trader's assort. Returns the trader's nickname, or null.</summary>
-    private string? RegisterTraderOffer(MongoId itemId, NocturneConfig config)
-    {
-        var traderId = new MongoId(config.TraderId);
-        if (!traders.TryGetValue(traderId, out var trader) || trader.Assort is null)
-        {
-            logger.Warning($"{LogPrefix} trader {config.TraderId} has no assort - skipping the trader offer.");
-            return null;
-        }
-
-        // A stable id derived from the item id, so re-running never stacks duplicate offers.
-        var offerId = new MongoId(NocturneBuffs.ItemId[..21] + "a55");
-
-        trader.Assort.Items ??= [];
-        trader.Assort.Items.RemoveAll(item => item.Id == offerId);
-        trader.Assort.Items.Add(new Item
-        {
-            Id = offerId,
-            Template = itemId,
-            ParentId = "hideout",
-            SlotId = "hideout",
-            Upd = new Upd
-            {
-                UnlimitedCount = config.TraderStockCount < 0,
-                StackObjectsCount = config.TraderStockCount < 0 ? 999999 : config.TraderStockCount,
-            },
-        });
-
-        trader.Assort.BarterScheme[offerId] =
-        [
-            [
-                new BarterScheme
-                {
-                    Count = TraderPrice(config),
-                    Template = Money.ROUBLES,
-                },
-            ],
-        ];
-
-        trader.Assort.LoyalLevelItems[offerId] = Math.Clamp(config.TraderLoyaltyLevel, 1, 4);
-
-        return trader.Base?.Nickname ?? config.TraderId;
     }
 }

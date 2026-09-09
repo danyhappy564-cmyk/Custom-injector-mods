@@ -83,6 +83,25 @@ SPT 4.1.5용 커스텀 주사기. **효과를 게임 안에서 F12로 직접 조
 > SPT는 핸드북이 아니라 **가격표**(`templates/prices`)를 보고 플리 매물을 만듭니다.
 > 그래서 `FleaPrice`가 실제로 지불하는 값이고, 서버 모드가 양쪽 다 세팅합니다.
 
+## 로드 순서 (중요)
+
+서버 모드가 두 단계로 나뉘어 있습니다. 합칠 수 없어서요.
+
+| 단계 | 슬롯 | 하는 일 |
+|---|---|---|
+| `NocturneMod` | `Preload` (100000) | 아이템 등록, 버프 시드, 핸드북, 플리 가격, 로케일 |
+| `NocturneTraderOffer` | `TraderRegistration + 50` (300050) | 상인 매물 |
+
+SPT 4.1의 `DatabaseIntegrityService`는 **프로필이 로드된 시점의 `TemplateTable.Items`를 스냅샷**해두고,
+그 뒤에 아이템이 하나라도 늘어나 있으면 `DatabaseModifiedAfterCutoffException`으로 **서버를 죽입니다.**
+그 스냅샷을 앞지를 수 있는 건 200000 미만 구간뿐이라 아이템 등록은 반드시 `Preload`여야 합니다.
+(핸드북도 `HandbookCallbacks`가 처리하기 전에 들어가는 게 맞아서 양쪽으로 옳은 슬롯입니다.)
+
+반대로 상인은 `TraderRegistration`에서야 준비되기 때문에, 매물을 `Preload`에 넣으면 아직 채워지지
+않은 테이블에 쓰다가 **조용히 실패해서 아이템만 못 사게 됩니다.** 그래서 뒤로 뺐습니다.
+매물을 늦게 추가하는 건 안전합니다 — 어소트는 요청마다 읽히고, 플리의 상인 매물 생성은
+`RagfairCallbacks`(900000)라 한참 뒤입니다.
+
 ## 왜 재시작 없이 되나
 
 주사기 버프는 `globals`에 있는 표에서 오는데, 클라이언트가 그 표를 **주사하는 순간 복사**해서
@@ -132,7 +151,9 @@ dotnet build Nocturne.slnx -c Release
 - 클라 플러그인: **실제 4.1.5 `Assembly-CSharp.dll`** 상대로 컴파일 (경고 0). 리플렉션이
   없으니 컴파일 자체가 바인딩 검증이고, 빌드된 DLL을 역컴파일해서 실제로
   `Singleton<GlobalConfiguration>` 경로와 `IsBuff`를 쓰는지 확인했습니다.
-- **55개 체크 하네스 전부 통과**:
+- **58개 체크 하네스 전부 통과**:
+  - **두 IOnLoad의 실행 슬롯** — 아이템 등록이 `Preload` 구간(200000 미만)인지, 상인 매물이
+    `TraderRegistration` 이후인지. 이건 실제로 서버를 죽였던 버그라 회귀 테스트로 박아뒀습니다
   - 효과 10개가 쓰는 `BuffType` 문자열 12개가 전부 실제 `EStimulatorBuffType` enum에
     존재하는지 (4.1.5 어셈블리를 리플렉션으로 대조 — 오타 하나면 그 효과가 조용히 사라짐)
   - 받는 피해 감소가 음수로, 허기·탈수 부작용이 항상 음수로 들어가는지
