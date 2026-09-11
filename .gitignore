@@ -7,3 +7,4 @@
 
 # Machine-local build settings (SptRoot)
 local.props
+release/
