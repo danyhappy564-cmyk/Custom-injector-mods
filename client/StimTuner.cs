@@ -29,7 +29,7 @@ internal sealed class StimTuner
 
         /// <summary>
         /// Captured up front: the game's own buff/debuff verdict (<c>BuffType.IsBuff(Value)</c>)
-        /// depends on Value, and we scale Value, so reading it later would flip on its own.
+        /// depends on Value, 그리고 we scale Value, so reading it later would flip on its own.
         /// </summary>
         internal bool IsBuff;
     }
@@ -63,9 +63,14 @@ internal sealed class StimTuner
 
     private readonly List<VanillaRow> _vanilla = new();
     private readonly Dictionary<string, EStimulatorBuffType> _buffTypes = new();
+    private readonly Dictionary<string, EDamageEffectType> _damageTypes = new();
 
     private readonly List<EffectRow> _effects = new();
 
+    /// <summary>Nocturne's own template, if the server mod registered it. Tuned, never scaled.
+</summary>
+    private StimulatorTemplate? _nocturne;
+    
     private Dictionary<string, Settings[]>? _bound;
     private ItemTemplates? _boundTemplates;
     private bool _dirty;
@@ -88,6 +93,7 @@ internal sealed class StimTuner
             // fresh baseline instead of one taken from a table that no longer exists.
             _bound = null;
             _boundTemplates = null;
+            _nocturne = null;
             return;
         }
 
@@ -173,6 +179,7 @@ internal sealed class StimTuner
     private void CaptureEffects(ItemTemplates templates)
     {
         _effects.Clear();
+        _nocturne = null;
 
         var stims = 0;
         foreach (var pair in templates)
@@ -182,8 +189,18 @@ internal sealed class StimTuner
                 continue;
             }
 
-            stims++;
+            // Nocturne is the one stim whose rows are rebuilt from the F12 values rather than
+            // scaled from a baseline, so it stays out of this pool - which is what
+            // "기존 주사기 일괄 조정" promises anyway. Matching on the buff key rather than the
+            // item id keeps this tied to the mod's own marker.
+            if (stim.StimulatorBuffs == NocturneBuffs.BuffsKey)
+            {
+                _nocturne = stim;
+                continue;
+            }
 
+            stims++;
+            
             if (stim.DamageEffects != null)
             {
                 foreach (var effect in stim.DamageEffects.Values)
@@ -228,7 +245,9 @@ internal sealed class StimTuner
             }
         }
 
-        _log.LogInfo($"Captured {_effects.Count} damage/health effect row(s) across {stims} stimulant template(s).");
+        _log.LogInfo(
+            $"Captured {_effects.Count} damage/health effect row(s) across {stims} vanilla stimulant template(s)"
+            + (_nocturne == null ? "." : "; SJ-0 «Nocturne» found and tuned separately."));
     }
 
     private void Apply(Dictionary<string, Settings[]> buffs)
@@ -236,6 +255,7 @@ internal sealed class StimTuner
         var on = _settings.Enabled.Value;
 
         ApplyNocturne(buffs, on);
+        ApplyNocturneDamageEffects(on);
         ApplyVanilla(on);
 
         if (_settings.VerboseLogging.Value)
