@@ -55,6 +55,8 @@ internal sealed class EffectBinding
     {
         NocturneEffect.SideEffectPain =>
             $"주사 후 통증이 시작되기까지의 지연 시간(초). 기본 {spec.DefaultStrength:0.#}초.",
+        NocturneEffect.PainKiller =>
+            $"약효가 끝난 뒤 통증이 서서히 돌아오는 시간(초). 기본 {spec.DefaultStrength:0.#}초.",
         NocturneEffect.DamageResist =>
             $"받는 피해 감소 비율. 0.15 이면 15% 감소. 기본 {spec.DefaultStrength:0.##}.",
         _ => $"효과의 크기. 기본 {spec.DefaultStrength:0.##}.",
