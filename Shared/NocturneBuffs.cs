@@ -17,6 +17,7 @@ public enum NocturneEffect
     DamageResist,
     StopBleeding,
     ClearNegative,
+    PainKiller,
     SideEffectHungerThirst,
     SideEffectPain,
 }
@@ -41,7 +42,31 @@ public sealed class NocturneBuff
     public double Value;
 }
 
-/// <summary>An effect as shown in F12: a label, defaults, and the buff rows it expands to.</summary>
+/// <summary>
+/// One entry of the item's <c>effects_damage</c> table.
+/// <para>
+/// These do not live in the stimulator buff table at all - they sit on the item template, and they
+/// are the only way to get a painkiller's behaviour: <c>Pain</c> here means "suppress pain for this
+/// long", the same row that makes Analgin say 고통 제거 in the inspect window. Hand tremor is
+/// derived from pain by the client itself (<c>PainSettings.TremorDelay</c>), so suppressing pain
+/// takes the shaking with it.
+/// </para>
+/// <para>
+/// <see cref="EffectType"/> is a string for the same reason <see cref="NocturneBuff.BuffType"/> is:
+/// the client's <c>EDamageEffectType</c> does not exist in the server mod.
+/// </para>
+/// </summary>
+public sealed class NocturneDamageEffect
+{
+    public string EffectType = "";
+    public double Delay;
+    public double Duration;
+
+    /// <summary>Seconds the effect takes to wear off once <see cref="Duration"/> is up.</summary>
+    public double FadeOut;
+}
+
+/// <summary>An effect as shown in F12: a label, defaults, and the rows it expands to.</summary>
 public sealed class NocturneEffectSpec
 {
     public NocturneEffect Effect;
@@ -72,6 +97,13 @@ public sealed class NocturneEffectSpec
     /// seed the table with the defaults, and by the client every time an F12 value changes.
     /// </summary>
     public Func<double, double, List<NocturneBuff>> Build = (_, _) => new List<NocturneBuff>();
+    
+    /// <summary>
+    /// This effect's <c>effects_damage</c> rows, if it has any. Most effects are buff-table rows
+    /// and leave this empty; the painkiller is the other way round.
+    /// </summary>
+    public Func<double, double, List<NocturneDamageEffect>> BuildDamage =
+        (_, _) => new List<NocturneDamageEffect>();
 }
 
 /// <summary>
@@ -175,10 +207,16 @@ public static class NocturneBuffs
             },
             new()
             {
-                Effect = NocturneEffect.ClearNegative,
-                Label = "부정 효과 제거",
-                Help = "통증·손떨림 같은 부정 효과를 즉시 제거합니다. 지속시간이 없는 1회성 효과입니다.",
-                Build = (_, _) => One("RemoveNegativeEffects", 1, 0, absolute: false),
+                Effect = NocturneEffect.PainKiller,
+                Label = "고통·떨림 제거",
+                Help = "진통제와 똑같은 방식으로 통증을 막습니다. 손떨림은 통증에서 파생되는 효과라 "
+                    + "같이 사라집니다. 지속시간이 끝나면 통증이 다시 올라옵니다.",
+                DefaultDuration = 200,
+                DefaultStrength = 15,
+                BuildDamage = (d, v) => new List<NocturneDamageEffect>
+                {
+                    Damage("Pain", d, fadeOut: Math.Abs(v)),
+                },
             },
             new()
             {
@@ -204,6 +242,15 @@ public static class NocturneBuffs
             },
         };
     }
+
+    private static NocturneDamageEffect Damage(
+        string effectType, double duration, double fadeOut = 0, double delay = 0) => new()
+    {
+        EffectType = effectType,
+        Delay = delay,
+        Duration = duration,
+        FadeOut = fadeOut,
+    };    
 
     private static List<NocturneBuff> One(
         string buffType, double duration, double value, bool absolute = true, double delay = 0) =>
