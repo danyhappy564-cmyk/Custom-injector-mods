@@ -327,6 +327,61 @@ internal sealed class StimTuner
     }
 
     /// <summary>
+        /// Rebuilds Nocturne's own <c>effects_damage</c> table from the F12 values - the 고통 제거 row
+    /// that behaves exactly like a painkiller's.
+    /// <para>
+    /// This has to be a template row rather than a buff-table row: the stimulator table can apply
+    /// pain (<c>EStimulatorBuffType.Pain</c>) but has nothing that reliably takes it away, which is
+    /// why the old 부정 효과 제거 entry did nothing you could feel. The dictionary is rebuilt rather
+    /// than edited for the same reason the buff array is - a disabled effect has to leave no row at
+    /// all, or the inspect window keeps advertising it.
+    /// </para>
+    /// </summary>
+    private void ApplyNocturneDamageEffects(bool on)
+    {
+        if (_nocturne == null)
+        {
+            return;
+        }
+
+        var rows = new Dictionary<EDamageEffectType, DamageEffectSpecification>();
+
+        foreach (var binding in _settings.Effects)
+        {
+            var enabled = on ? binding.Enabled : binding.Spec.DefaultEnabled;
+            if (!enabled)
+            {
+                continue;
+            }
+
+            var duration = on ? binding.Duration : binding.Spec.DefaultDuration;
+            var strength = on ? binding.Strength : binding.Spec.DefaultStrength;
+
+            foreach (var effect in binding.Spec.BuildDamage(duration, strength))
+            {
+                if (!TryDamageEffectType(effect.EffectType, out var type))
+                {
+                    continue;
+                }
+
+                rows[type] = new DamageEffectSpecification
+                {
+                    Delay = (float)effect.Delay,
+                    Duration = (float)effect.Duration,
+                    FadeOut = (float)effect.FadeOut,
+                    Cost = 0,
+                    HealthPenaltyMin = 0,
+                    HealthPenaltyMax = 0,
+                };
+            }
+        }
+
+        // Swapped in one assignment, for the same reason the buff array is: using the syringe reads
+        // this dictionary straight off the template and must never catch it half-built.
+        _nocturne.DamageEffects = rows;
+    }
+
+    /// <summary>
     /// Rescales every vanilla row from its captured baseline. Always computing from the baseline
     /// rather than the current value is what keeps sliding back to 1.0 (or unticking the section)
     /// restore the original numbers exactly, and what stops repeated applies from compounding.
@@ -373,6 +428,27 @@ internal sealed class StimTuner
             // A game update that renamed a buff type should cost that one effect, not the mod.
             _log.LogWarning($"Unknown stimulator buff type '{name}' - skipping that effect.");
             buffType = default;
+            return false;
+        }
+    }
+
+    private bool TryDamageEffectType(string name, out EDamageEffectType effectType)
+    {
+        if (_damageTypes.TryGetValue(name, out effectType))
+        {
+            return true;
+        }
+
+        try
+        {
+            effectType = (EDamageEffectType)Enum.Parse(typeof(EDamageEffectType), name);
+            _damageTypes[name] = effectType;
+            return true;
+        }
+        catch (Exception)
+        {
+            _log.LogWarning($"Unknown damage effect type '{name}' - skipping that effect.");
+            effectType = default;
             return false;
         }
     }
