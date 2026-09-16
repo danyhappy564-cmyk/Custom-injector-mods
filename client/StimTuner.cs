@@ -68,7 +68,7 @@ internal sealed class StimTuner
     private readonly List<EffectRow> _effects = new();
 
     /// <summary>Nocturne's own template, if the server mod registered it. Tuned, never scaled.
-</summary>
+
     private StimulatorTemplate? _nocturne;
     
     private Dictionary<string, Settings[]>? _bound;

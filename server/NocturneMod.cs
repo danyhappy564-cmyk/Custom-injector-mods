@@ -31,7 +31,7 @@ namespace Nocturne.Server;
 /// see <see cref="NocturneTraderOffer"/>.
 /// </remarks>
 [Injectable(InjectionType.Singleton, TypePriority = OnLoadOrder.Preload + 50)]
-공개 class NocturneMod(
+    class NocturneMod(
     ISptLogger<NocturneMod> logger,
     NocturneConfigLoader configLoader,
     TemplateTable templates,
