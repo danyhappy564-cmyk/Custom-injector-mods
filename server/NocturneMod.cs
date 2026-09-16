@@ -3,6 +3,7 @@ using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
+using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Tables;
 using SptBuff = SPTarkov.Server.Core.Models.Spt.Tables.Buff;
 
@@ -18,19 +19,19 @@ namespace Nocturne.Server;
 ///
 /// The item is deliberately never added to any loot table, bot inventory or container pool. It
 /// exists in the item database, the handbook, the flea price table and (optionally) one trader's
-/// assort, and nowhere else — so it cannot be found in raid.
+/// assort, 그리고 nowhere else — so it cannot be found in raid.
 /// </summary>
 /// <remarks>
 /// Runs at <see cref="OnLoadOrder.Preload"/> because SPT 4.1's <c>DatabaseIntegrityService</c>
 /// snapshots <c>TemplateTable.Items</c> once profiles have loaded and throws if anything appeared
-/// after that. Preload is the last slot that beats the snapshot, and the database is already fully
+/// after that. Preload is the last slot that beats the snapshot, 그리고 the database is already fully
 /// imported by then. Registering the item any later takes the whole server down on boot.
 /// Handbook entries want to be in before <c>HandbookCallbacks</c> processes them anyway, so this is
 /// the right slot on both counts. The trader offer is a separate step —
 /// see <see cref="NocturneTraderOffer"/>.
 /// </remarks>
 [Injectable(InjectionType.Singleton, TypePriority = OnLoadOrder.Preload + 50)]
-public class NocturneMod(
+공개 class NocturneMod(
     ISptLogger<NocturneMod> logger,
     NocturneConfigLoader configLoader,
     TemplateTable templates,
@@ -131,6 +132,10 @@ public class NocturneMod(
             // The whole point of the item: its own key in the stimulator buff table.
             StimulatorBuffs = NocturneBuffs.BuffsKey,
 
+            // Rebuilt from scratch rather than inherited: SJ9's dictionary would otherwise be
+            // shared by reference with the clone, and the painkiller row has to be ours alone.
+            EffectsDamage = BuildDamageEffects(),
+            
             MedUseTime = config.UseTime,
             BackgroundColor = "violet",
 
@@ -157,6 +162,45 @@ public class NocturneMod(
             Parent = new MongoId(NocturneBuffs.StimulatorParentId),
             Properties = props,
         };
+    }
+
+    /// <summary>
+    /// Builds the item's <c>effects_damage</c> table from the defaults in
+    /// <see cref="NocturneBuffs"/> — the same rows the client plugin rebuilds from its F12 values.
+    /// This is where the painkiller effect lives; the stimulator buff table cannot express it.
+    /// </summary>
+    private Dictionary<DamageEffectType, EffectsDamageProperties> BuildDamageEffects()
+    {
+        var rows = new Dictionary<DamageEffectType, EffectsDamageProperties>();
+
+        foreach (var spec in NocturneBuffs.All)
+        {
+            if (!spec.DefaultEnabled)
+            {
+                continue;
+            }
+
+            foreach (var effect in spec.BuildDamage(spec.DefaultDuration, spec.DefaultStrength))
+            {
+                if (!Enum.TryParse<DamageEffectType>(effect.EffectType, out var type))
+                {
+                    logger.Warning($"{LogPrefix} Unknown damage effect type '{effect.EffectType}' - skipping it.");
+                    continue;
+                }
+
+                rows[type] = new EffectsDamageProperties
+                {
+                    Delay = effect.Delay,
+                    Duration = effect.Duration,
+                    FadeOut = effect.FadeOut,
+                    Cost = 0,
+                    HealthPenaltyMin = 0,
+                    HealthPenaltyMax = 0,
+                };
+            }
+        }
+
+        return rows;
     }
 
     private void RegisterHandbookAndPrices(MongoId itemId, NocturneConfig config)
