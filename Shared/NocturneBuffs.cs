@@ -202,8 +202,9 @@ public static class NocturneBuffs
             {
                 Effect = NocturneEffect.StopBleeding,
                 Label = "출혈 전부 제거",
-                Help = "경상·중상 출혈을 즉시 모두 멈춥니다. 지속시간이 없는 1회성 효과입니다.",
-                Build = (_, _) => One("RemoveAllBloodLosses", 1, 0, absolute: false),
+                Help = "경상·중상 출혈을 즉시 멈추고, 지속시간 동안 새로 나는 출혈도 계속 막습니다.",
+                DefaultDuration = 60,
+                Build = (d, _) => One("RemoveAllBloodLosses", d, 0, absolute: false),
             },
             new()
             {
