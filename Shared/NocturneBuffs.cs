@@ -208,6 +208,14 @@ public static class NocturneBuffs
             },
             new()
             {
+                Effect = NocturneEffect.ClearNegative,
+                Label = "부정 효과 제거",
+                Help = "게임이 디버프로 판정하는 상태 효과(타박상·중독 등)를 즉시 지웁니다. "
+                    + "출혈은 위 항목이 따로 담당합니다. 지속시간이 없는 1회성 효과입니다.",
+                Build = (_, _) => One("RemoveNegativeEffects", 1, 0, absolute: false),
+            },
+            new()
+            {
                 Effect = NocturneEffect.PainKiller,
                 Label = "고통·떨림 제거",
                 Help = "진통제와 똑같은 방식으로 통증을 막습니다. 손떨림은 통증에서 파생되는 효과라 "
